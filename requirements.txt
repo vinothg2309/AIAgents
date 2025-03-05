@@ -18,3 +18,4 @@ seaborn==0.13.2
 duckduckgo_search==7.5.0
 sec_api==1.0.29
 pydantic==2.9.0
+plotly==6.0.0
