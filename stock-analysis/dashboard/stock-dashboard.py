@@ -1,3 +1,7 @@
+from phi.agent import Agent
+from phi.model.groq import Groq
+from phi.tools.yfinance import YFinanceTools
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,6 +9,10 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import json
+import os
+import constants
+from agno_agent import agent_team
 
 # Set page config
 st.set_page_config(layout="wide", page_title="Stock Dashboard")
@@ -44,7 +52,7 @@ st.markdown("""
     .green-text {
         color: #69F0AE;
     }
-    h1, h2, h3, p {
+    h1, h2, h3, p , .stMarkdown{
         color: white;
     }
     .stTabs [data-baseweb="tab-list"] {
@@ -77,9 +85,24 @@ st.markdown("""
         margin: 0;
         padding: 0;
     }
+    table td, table th {
+        border: 1px solid white !important
+    }
 </style>
 """, unsafe_allow_html=True)
 
+STOCK_LIST = constants.STOCK_LIST
+
+stocks = []
+for s in STOCK_LIST:
+    stocks.append(s['company'])
+
+print("Stocks ======= ", stocks)
+
+def get_stock_ticker(company):
+    for s in STOCK_LIST:
+        if s['company'] == company:
+            return s['ticker']
 
 # Function to get company name
 def get_company_name(ticker):
@@ -93,9 +116,11 @@ def get_company_name(ticker):
     return ticker_to_name.get(ticker, ticker)
 
 
+
 # Function to load stock data
 @st.cache_data(ttl=300)
-def load_stock_data(ticker, period="1mo", interval="1d"):
+def load_stock_data(company, period="1mo", interval="1d"):
+    ticker = get_stock_ticker(company)
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period=period, interval=interval)
@@ -106,13 +131,33 @@ def load_stock_data(ticker, period="1mo", interval="1d"):
         # Provide empty DataFrame with expected columns as fallback
         return pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'Volume']), {}
 
+ticker_agent = Agent(
+    tools=[YFinanceTools(stock_price=True, analyst_recommendations=True, stock_fundamentals=True)],
+    model=Groq(id="llama-3.3-70b-versatile"),
+    # show_tool_calls=True,
+    description="You are an investment analyst that researches stock prices, analyst recommendations, and stock fundamentals."
+                "Given a company name, return the **correct stock ticker** used in **Yahoo Finance**."
+                "- For **NSE-listed stocks**, append **'.NS'** (e.g., Reliance Industries → `RELIANCE.NS`)."
+                "- For **BSE-listed stocks**, append **'.BO'** (e.g., Tata Motors → `TATAMOTORS.BO`)."
+                "- If the stock is listed on both exchanges, prioritize **NSE (`.NS`)**."
+                "Response:<TICKER>",
+    instructions=["You must return only the stock ticker in response without any additional details.", "Example: PYPL"],
+    markdown=True
+)
 
 # Sidebar
 with st.sidebar:
-    st.markdown('<div style="color: white;">Home</div>', unsafe_allow_html=True)
-    st.markdown('<div style="padding: 1px; background-color: #333333;"></div>', unsafe_allow_html=True)
-    st.markdown('<div style="color: white;">Earnings</div>', unsafe_allow_html=True)
-    st.markdown('<div style="padding: 1px; background-color: #333333;"></div>', unsafe_allow_html=True)
+    # st.markdown('<div style="color: white; margin-top: 30px; font-weight: bold;">Add Stocks</div>',
+    #             unsafe_allow_html=True)
+    # stock = st.text_input("")
+    # if st.button("➕ Add", type="primary"):
+    #     print("Add Stock****************")
+    #
+    #     response = ticker_agent.run(stock)
+    #     ticker = response.content.replace('#','').strip()
+    #     print("response.content ------------------> ",response.content, ', Updated Ticker::: ', ticker)
+    #     stock_detail = {'company': stock, 'ticker': ticker}
+    #     # st.write(response.content)
 
     st.markdown('<div style="color: white; margin-top: 30px; font-weight: bold;">Choose your filter:</div>',
                 unsafe_allow_html=True)
@@ -123,7 +168,7 @@ with st.sidebar:
     # Create a container with custom styling for the dropdown
     ticker_container = st.container()
     with ticker_container:
-        ticker_options = ["MSFT", "AAPL", "GOOGL", "AMZN", "META"]
+        ticker_options = stocks
         selected_ticker = st.selectbox("", ticker_options, index=0, label_visibility="collapsed")
 
     # Period selection
@@ -135,7 +180,7 @@ with st.sidebar:
         selected_period = st.selectbox("", period_options, index=0, label_visibility="collapsed")
 
 # Main panel
-st.title(f"{get_company_name(selected_ticker)} ({selected_ticker})")
+st.title(f"{selected_ticker} ({get_stock_ticker(selected_ticker)})")
 st.markdown('<div style="padding: 1px; background-color: #333333; margin-bottom: 20px;"></div>', unsafe_allow_html=True)
 
 # Get stock data and info
@@ -353,3 +398,15 @@ fig.update_layout(
 )
 
 st.plotly_chart(fig, use_container_width=True)
+
+@st.cache_data(ttl=600)
+def fetch_stock_analysis():
+    response = agent_team.run(
+        f"Summarize analyst recommendations, sentiment analysis and latest news of {selected_ticker}")
+    # print("response :::: ", response)
+    return response.content
+
+st.title("Recommendation, Analysis and News")
+with st.spinner("Fetching..."):
+    response = fetch_stock_analysis()
+    st.markdown(response)
