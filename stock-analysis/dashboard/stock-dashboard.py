@@ -399,7 +399,7 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
-@st.cache_data(ttl=600)
+# @st.cache_data(ttl=600)
 def fetch_stock_analysis():
     response = agent_team.run(
         f"Summarize analyst recommendations, sentiment analysis and latest news of {selected_ticker}")
